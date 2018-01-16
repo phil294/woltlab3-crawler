@@ -1,0 +1,11 @@
+{
+  "devDependencies": {
+    "eslint": "^4.15.0",
+    "eslint-config-airbnb-base": "^12.1.0",
+    "eslint-plugin-import": "^2.8.0"
+  },
+  "dependencies": {
+    "jquery": "^3.2.1",
+    "node-fetch": "^1.7.3"
+  }
+}
