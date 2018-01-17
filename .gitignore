@@ -1,4 +1,8 @@
+.vscode
 node_modules
 dist
 target
 build
+.idea
+.project
+*.iml
