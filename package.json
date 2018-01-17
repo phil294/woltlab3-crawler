@@ -5,6 +5,7 @@
     "eslint-plugin-import": "^2.8.0"
   },
   "dependencies": {
+    "html2plaintext": "^2.0.1",
     "jquery": "^3.2.1",
     "node-fetch": "^1.7.3"
   }
