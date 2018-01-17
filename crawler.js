@@ -3,7 +3,7 @@ const { log, error } = console;
 const args = process.argv.slice(2);
 if (args.length !== 3) {
     error('call: program [index.php] [wcf_cookieHash] [User-Agent]');
-    error("example: node crawler.js 0929e19bf86e9ae1664310447558481638e3ff92 'Mozilla/5.0 (X11; Linux x86_64) Safari/537.36' 'http://regnum.gamigo.com/de/forum'");
+    error("example: node crawler.js 0929e19bf86e9ae1664310447558481638e3ff92 'Mozilla/5.0 (X11; Linux x86_64) Safari/537.36' '......forum/index.php'");
     process.exit(1);
 }
 
@@ -89,5 +89,6 @@ async function iterateBoards(url, path) {
 }
 
 (async function main() {
+    log('starting');
     iterateBoards(baseUrl, '.');
 }());
