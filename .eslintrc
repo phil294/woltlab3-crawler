@@ -3,6 +3,7 @@
   "rules": {
     "indent": ["error", 4],
     "no-console": "error",
-    "no-unused-vars": "warn"
+    "no-unused-vars": "warn",
+    "require-await": "error"
   }
 }

@@ -2,8 +2,8 @@ const { log, error } = console;
 
 const args = process.argv.slice(2);
 if (args.length !== 3) {
-    error('call: program [index.php] [wcf_cookieHash] [User-Agent]');
-    error("example: node crawler.js 0929e19bf86e9ae1664310447558481638e3ff92 'Mozilla/5.0 (X11; Linux x86_64) Safari/537.36' '......forum/index.php'");
+    error('call: program [root_dir] [wcf_cookieHash] [User-Agent]');
+    error("example: node crawler.js 0929e19bf86e9ae1664310447558481638e3ff92 'Mozilla/5.0 (X11; Linux x86_64) Safari/537.36' 'https://cor-forum.de'");
     process.exit(1);
 }
 
@@ -20,7 +20,7 @@ const headers = {
     Cookie: `wcf_cookieHash=${args[0]}`,
     'User-Agent': args[1],
 };
-const baseUrl = args[2];
+const rootUrl = args[2].replace(/\/$/, '');
 
 function zeropad(number) {
     let str = `${number}`;
@@ -50,15 +50,22 @@ async function saveUrl(url, filename) {
     res.body.pipe(stream);
 }
 
+function absoluteUrl(url) {
+    if (!/^https?:\/\//i.test(url)) {
+        return `${rootUrl}/${url}`;
+    }
+    return url;
+}
+
 const visitedThreads = new Set();
 
-async function downloadThread(url, path) {
+function downloadThread(url, path) {
     if (visitedThreads.has(url)) {
         error(`[thread] skipping: ${path}`);
         return;
     }
     visitedThreads.add(url);
-    log(path); // todo
+    log(url);
 }
 
 const visitedBoards = new Set();
@@ -77,18 +84,20 @@ async function iterateBoards(url, path) {
         .each((boardIndex, aBoard) => {
             const board = `${zeropad(boardIndex)} ${aBoard.text}`;
             const subpath = `${path}/${board}`;
-            iterateBoards(aBoard.href, subpath); // recursive
+            iterateBoards(absoluteUrl(aBoard.href), subpath); // recursive
         });
     html
-        .find('div#normalThreadsStatus > table.tableList > tbody > tr > td.columnTopic > div.topic > p > a')
+        .find('div:not(#topThreadsStatus):not(.tabMenuContent) > table.tableList > tbody > tr > td.columnTopic > div.topic > p > a')
         .each((topicIndex, aTopic) => {
             const topic = `${zeropad(topicIndex)} ${aTopic.text}`;
             const subpath = `${path}/${topic}`;
-            downloadThread(aTopic.href, subpath);
+            downloadThread(absoluteUrl(aTopic.href), subpath);
         });
 }
 
-(async function main() {
+process.on('exit', () => log('exit'));
+(function main() {
     log('starting');
-    iterateBoards(baseUrl, '.');
+    iterateBoards(rootUrl, '.');
+    // log(html2plaintext(await getHtml(rootUrl)));
 }());
