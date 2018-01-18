@@ -4,6 +4,7 @@
     "indent": ["error", 4],
     "no-console": "error",
     "no-unused-vars": "warn",
-    "require-await": "error"
+    "require-await": "error",
+    "no-plusplus": "off"
   }
 }
