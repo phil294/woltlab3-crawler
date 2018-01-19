@@ -1,10 +1,17 @@
 {
-  "extends": "airbnb-base",
-  "rules": {
-    "indent": ["error", 4],
-    "no-console": "error",
-    "no-unused-vars": "warn",
-    "require-await": "error",
-    "no-plusplus": "off"
-  }
+    "extends": "airbnb-base",
+    "rules": {
+        "indent": ["error", 4],
+        "no-console": "error",
+        "no-unused-vars": "warn",
+        "require-await": "error",
+        "no-plusplus": "off",
+        "no-restricted-syntax": [
+            "error",
+            "ForInStatement",
+            "LabeledStatement",
+            "WithStatement"
+        ],
+        "no-await-in-loop": "off"
+    }
 }
