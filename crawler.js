@@ -2,7 +2,7 @@ const { log, error } = console;
 
 const args = process.argv.slice(2);
 if (args.length !== 3) {
-    error('call: program [root_dir] [wcf_cookieHash] [User-Agent]');
+    error('call: program [wcf_cookieHash] [User-Agent] [root_dir]');
     error("example: node crawler.js 0929e19bf86e9ae1664310447558481638e3ff92 'Mozilla/5.0 (X11; Linux x86_64) Safari/537.36' 'https://cor-forum.de'");
     process.exit(1);
 }
@@ -44,7 +44,8 @@ async function getRes(url) {
     const res = await fetch(url, { headers });
     if (!res.ok) {
         log(url, res.statusText, res.status);
-        process.exit(res.status);
+        // process.exit(res.status);
+        return false;
     }
     return res;
 }
@@ -61,8 +62,10 @@ async function getHtml(url) {
 
 async function saveUrl(url, filename) {
     const res = await getRes(url);
-    const stream = fs.createWriteStream(filename);
-    res.body.pipe(stream);
+    if (res) {
+        const stream = fs.createWriteStream(filename);
+        res.body.pipe(stream);
+    }
 }
 
 function absoluteUrl(url) {
@@ -154,34 +157,33 @@ async function downloadThread(baseUrl, path, pageMax, progressString) {
 
     // visit pages iteratively & save
     for (const [pageIndex, pageUrl] of pageUrls.entries()) {
-        log(`${progressString}, page ${pageIndex + 1}/${pageUrls.length}`);
         const jPageHtml = $(await getHtml(pageUrl));
         // save all messages to db
-        jPageHtml.find('#main > .message > .messageInner')
-            .each((_, divMessage) => {
-                const jDivMessage = $(divMessage);
-                const timestring = jDivMessage.find('> div.messageContent > div.messageContentInner > div.messageHeader > div.containerContent > p.smallFont.light').text();
-                const timestamp = parseTime(timestring) / 1000;
-                // const timestamp = 1000000000; // FIXME
-                const username = jDivMessage.find('> div.messageSidebar > div.messageAuthor > p.userName > a > span').text();
-                const messageHtml = jDivMessage.find('> div.messageContent > div.messageContentInner > div.messageBody > div').html();
-                let message = parseMessage(messageHtml);
+        const jDivMessages = jPageHtml.find('#main > .message > .messageInner');
+        log(`${progressString}, page ${pageIndex + 1}/${pageUrls.length}, ${jDivMessages.length} posts`);
+        jDivMessages.each((_, divMessage) => {
+            const jDivMessage = $(divMessage);
+            const timestring = jDivMessage.find('> div.messageContent > div.messageContentInner > div.messageHeader > div.containerContent > p.smallFont.light').text();
+            const timestamp = parseTime(timestring) / 1000;
+            const username = jDivMessage.find('> div.messageSidebar > div.messageAuthor > p.userName > a > span').text();
+            const messageHtml = jDivMessage.find('> div.messageContent > div.messageContentInner > div.messageBody > div').html();
+            let message = parseMessage(messageHtml);
 
-                // attachments
-                jDivMessage.find('> div.messageContent > div.messageContentInner > fieldset.attachmentFile > ul > li > div > a')
-                    .each((__, aAttachment) => {
-                        const attachmentHref = aAttachment.href;
-                        const attachmentId = attachmentHref.replace(/^.+&attachmentID=([0-9]+)([^0-9].*$|$)/, '$1');
-                        saveUrl(`attachments/${attachmentId}`, attachmentHref); // async in background
-                        message += `\nAttachment:\n<img src="attachments/${attachmentId}`;
-                    });
-
-                db.run('INSERT INTO posts (thread, timestamp, username, message) VALUES (?,?,?,?)', dbThreadId, timestamp, username, message, (errormessage) => {
-                    if (errormessage !== null) {
-                        error(errormessage);
-                    }
+            // attachments
+            jDivMessage.find('> div.messageContent > div.messageContentInner > fieldset.attachmentFile > ul > li > div > a')
+                .each((__, aAttachment) => {
+                    const attachmentHref = aAttachment.href;
+                    const attachmentId = attachmentHref.replace(/^.+&attachmentID=([0-9]+)([^0-9].*$|$)/, '$1');
+                    saveUrl(attachmentHref, `attachments/${attachmentId}`); // async in background
+                    message += `\nAttachment:\n<img src="attachments/${attachmentId}" />`;
                 });
+
+            db.run('INSERT INTO posts (thread, timestamp, username, message) VALUES (?,?,?,?)', dbThreadId, timestamp, username, message, (errormessage) => {
+                if (errormessage !== null) {
+                    error(errormessage);
+                }
             });
+        });
     }
 }
 
@@ -194,8 +196,8 @@ async function iterateBoards(url, path, currentProgressString) {
     }
     visitedBoards.add(url);
 
-    // find sub-boards
     const jHtml = $(await getHtml(url));
+    // find sub-boards
     const aBoards = jHtml
         .find(`#boardlist > li.border > ul > li > div.boardlistInner > div.boardlistTitle > div.containerContent > .boardTitle > a,
                #boardlist > li.border > div.boardlistInner:not(.containerHead) > div.boardlistTitle > div.containerContent > .boardTitle > a`);
@@ -214,10 +216,12 @@ async function iterateBoards(url, path, currentProgressString) {
     for (let i = 2; i <= pageMax; i++) {
         pageUrls.push(`${url}index${i}.html`);
     }
+
     // visit all pages of board
     for (const [pageIndex, pageUrl] of pageUrls.entries()) {
         const jPageHtml = $(await getHtml(pageUrl));
         const tdTopics = jPageHtml.find('div:not(#topThreadsStatus):not(.tabMenuContent) > table.tableList > tbody > tr > td.columnTopic');
+
         for (let topicIndex = 0; topicIndex < tdTopics.length; topicIndex++) {
             const jTdTopic = $(tdTopics[topicIndex]);
 
