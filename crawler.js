@@ -22,11 +22,16 @@ const headers = {
     'User-Agent': args[1],
 };
 const rootUrl = args[2].replace(/\/$/, '');
+if (rootUrl.match(/\.php$/)) {
+    error('specify root dir without index.php, e.g. "domain.com/forum" instead of "domain.com/forum/index.php"');
+    process.exit(4);
+}
 
 const db = new sqlite3.Database(`forum_backup${new Date().getTime()}.sqlite`);
 db.serialize(() => {
     db.run('CREATE TABLE threads (id INTEGER PRIMARY KEY ASC, path TEXT)');
-    db.run('CREATE TABLE users (id INTEGER PRIMARY KEY ASC, name TEXT)');
+    db.run('CREATE TABLE users (id INTEGER PRIMARY KEY ASC, name TEXT, profilePicPath TEXT, info TEXT)');
+    db.run('CREATE TABLE guestbook_entries (user INTEGER, username TEXT, author INTEGER, authorname TEXT, timestamp INTEGER, message TEXT)');
     db.run('CREATE TABLE posts (id INTEGER PRIMARY KEY ASC, thread INTEGER, user INTEGER, username TEXT, timestamp INTEGER, message TEXT, FOREIGN KEY(thread) REFERENCES threads(id), FOREIGN KEY(user) REFERENCES users(id))');
 });
 
@@ -211,7 +216,7 @@ async function iterateBoards(url, path, currentProgressString) {
     }
 
     // this board: get page urls
-    const pageMax = jHtml.find('#main > div.contentHeader > div.pageNavigation > ul > li:nth-last-child(2) > a').text();
+    const pageMax = jHtml.find('#main > div.contentHeader > div.pageNavigation > ul > li:nth-last-child(2) > a').text(); // FIXME if > 1k, comma error (guestbook does it right)
     const pageUrls = [url];
     for (let i = 2; i <= pageMax; i++) {
         pageUrls.push(`${url}index${i}.html`);
@@ -237,6 +242,79 @@ async function iterateBoards(url, path, currentProgressString) {
     }
 }
 
+async function downloadGuestBook(userId, username, progressString) {
+    const guestbookUrl = `${rootUrl}?page=UserGuestbook&userID=${userId}`;
+    const htmlGuestbook = await getHtml(guestbookUrl);
+    let guestbookMaxPage;
+    const textGuestbookMaxPage = $(htmlGuestbook).find('#main > div.guestBook > div > div.contentHeader > div.pageNavigation > ul > li:nth-last-child(2) > a').text();
+    if (textGuestbookMaxPage !== undefined) {
+        guestbookMaxPage = textGuestbookMaxPage.replace(/[^0-9]/g, '');
+    } else {
+        guestbookMaxPage = 1;
+    }
+    for (let guestbookPage = 1; guestbookPage <= guestbookMaxPage; guestbookPage++) {
+        const htmlGuestbookPage = await getHtml(`${guestbookUrl}&pageNo=${guestbookPage}`);
+        const jDivMessages = $(htmlGuestbookPage).find('#main > div.guestBook > div > div.guestBookInner > .message > .messageInner');
+        log(`${progressString}, guestbook page ${guestbookPage}/${guestbookMaxPage}, ${jDivMessages.length} entries`);
+        for (let guestbookPageMessageIndex = 0; guestbookPageMessageIndex < jDivMessages.length; guestbookPageMessageIndex++) {
+            const jDivMessage = $(jDivMessages[guestbookPageMessageIndex]);
+            const jPMessageHeaderStrings = jDivMessage.find('> div.messageHeader > div.containerContent > p.smallFont.light');
+            const timestring = $(jPMessageHeaderStrings[0]).text();
+            const timestamp = parseTime(timestring) / 1000;
+            const authorname = $(jPMessageHeaderStrings[1]).find('> a').text();
+            const messageHtml = jDivMessage.find('> div.messageBody').html();
+            const message = parseMessage(messageHtml);
+            db.run('INSERT INTO guestbook_entries (username, authorname, timestamp, message) VALUES (?,?,?,?)', username, authorname, timestamp, message);
+        }
+    }
+}
+
+async function downloadUserprofile(url, username, progressString) {
+    const html = await getHtml(url);
+    const userId = url.replace(/^.+\/user\/([0-9]+).+$/, '$1');
+    const jDivMain = $(html).find('#main');
+    const profilePicSrc = jDivMain
+        .find('> div#userCard > div.userCardInner > ul.userCardList > li#userCardAvatar > div.userAvatar > a > img').prop('src');
+    let profilePicPath = '';
+    if (!profilePicSrc.match('default')) {
+        profilePicPath = profilePicSrc.replace(/^.+\/avatar-([0-9]+\..+)$/, '$1');
+        saveUrl(absoluteUrl(profilePicSrc), `userprofilepics/${profilePicPath}`);
+    }
+    // all info concatd as text
+    let infoHtml = '';
+    jDivMain.find('> div.border > div > div.columnContainer > div > div.columnInner > div.contentBox')
+        .each((_, divAboutContentBox) => { // about + signature + personal information
+            infoHtml += divAboutContentBox.innerHTML;
+        });
+    const sidebar = jDivMain.find('> div.border > div > div.columnContainer > div.second.sidebar.profileSidebar > div.columnInner').html();
+    if (sidebar !== undefined) {
+        infoHtml += sidebar;
+    }
+    const info = parseMessage(infoHtml);
+    db.run('INSERT INTO users (name, profilePicPath, info) VALUES (?,?,?)', username, profilePicPath, info);
+
+    if (jDivMain.find('.contentBox > .subHeadline > a:contains("Guestbook")').length > 0) { // guestbook public / userprofile not private
+        await downloadGuestBook(userId, username, progressString);
+    }
+}
+
+async function iterateMemberslist() {
+    const baseUrl = `${rootUrl}?page=MembersList&searchID=0&sortField=posts&sortOrder=DESC&letter=`;
+    const baseHtml = await getHtml(baseUrl);
+    const maxPage = $(baseHtml).find('#main > div.pageNavigation > ul > li:nth-last-child(2) > a').text().replace(/[^0-9]/g, '');
+    for (let pageNo = 1; pageNo <= maxPage; pageNo++) {
+        const pageHtml = await getHtml(`${baseUrl}&pageNo=${pageNo}`);
+        const aUserprofiles = $(pageHtml).find('#main > div.tabMenuContent > table.membersList > tbody > tr > td.columnUsername > div.containerContentSmall > p > a');
+        for (let userprofileIndex = 0; userprofileIndex < aUserprofiles.length; userprofileIndex++) {
+            const aUserprofile = aUserprofiles[userprofileIndex];
+            const progressString = `members, page ${pageNo}/${maxPage}, userprofile ${userprofileIndex + 1}/${aUserprofiles.length}`;
+            log(progressString);
+            await downloadUserprofile(aUserprofile.href, aUserprofile.text, progressString);
+        }
+    }
+    log(maxPage);
+}
+
 process.on('exit', () => {
     db.close();
     log('exit');
@@ -244,4 +322,5 @@ process.on('exit', () => {
 (async function main() {
     log('starting');
     await iterateBoards(rootUrl, '.', 'root');
+    await iterateMemberslist();
 }());
