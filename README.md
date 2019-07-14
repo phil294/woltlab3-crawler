@@ -5,3 +5,5 @@
 - output = sqlite database and attachments folder
 - database: will have tables threads (id INTEGER PRIMARY KEY ASC, path TEXT) and posts (id INTEGER PRIMARY KEY ASC, thread INTEGER, user INTEGER, username TEXT, timestamp INTEGER, message TEXT)
 - prints progress like `root, board 1/19, board 1/1, page 1/2, thread 3/49, page 1/1, 2 posts`
+
+Note: The package.json is outdated and contains possibly vulnerable dependencies. Check before use or simply upgrade the deps.
